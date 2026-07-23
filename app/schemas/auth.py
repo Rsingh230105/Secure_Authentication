@@ -43,3 +43,45 @@ class LoginResponse(BaseModel):
 	access_token: str
 	refresh_token: str
 	token_type: str = "bearer"
+
+
+class MessageResponse(BaseModel):
+	"""Return a plain status message for operations that produce no resource."""
+
+	message: str
+
+
+class ForgotPasswordRequest(BaseModel):
+	"""Validate an email address submitted for password reset."""
+
+	email: EmailStr
+
+
+class VerifyEmailRequest(BaseModel):
+	"""Validate a token submitted for email verification."""
+
+	token: str = Field(min_length=1)
+
+
+class ResetPasswordRequest(BaseModel):
+	"""Validate a reset token and the new password submitted by the user."""
+
+	token: str = Field(min_length=1)
+	new_password: str = Field(min_length=8, max_length=128)
+
+	@field_validator("new_password")
+	@classmethod
+	def validate_password_strength(cls, value: str) -> str:
+		"""Require upper, lower, numeric, and special password characters."""
+
+		requirements = (
+			any(c.islower() for c in value),
+			any(c.isupper() for c in value),
+			any(c.isdigit() for c in value),
+			any(not c.isalnum() for c in value),
+		)
+		if not all(requirements):
+			raise ValueError(
+				"Password must contain lower, upper, numeric, and special characters"
+			)
+		return value

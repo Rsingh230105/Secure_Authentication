@@ -1,7 +1,8 @@
 """Business logic for registration, login, and refresh-token rotation."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
+import secrets
 
 from jose import JWTError
 from sqlalchemy import select
@@ -136,3 +137,108 @@ def rotate_refresh_token(database_session: Session, refresh_token: str) -> Login
 	token_pair = _issue_token_pair(database_session, user)
 	database_session.commit()
 	return token_pair
+
+
+def create_verification_token(database_session: Session, user: User) -> str:
+    """Generate and persist an email verification token for the given user."""
+
+    raw_token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+    database_session.add(
+        Token(
+            user_id=user.id,
+            token_hash=hash_token(raw_token),
+            token_type="email_verification",
+            expires_at=expires_at,
+        )
+    )
+    database_session.commit()
+    return raw_token
+
+
+def verify_email(database_session: Session, raw_token: str) -> None:
+    """Mark a user's email as verified and consume the verification token."""
+
+    stored = database_session.scalar(
+        select(Token).where(
+            Token.token_hash == hash_token(raw_token),
+            Token.token_type == "email_verification",
+            Token.revoked_at.is_(None),
+        )
+    )
+    now = datetime.now(timezone.utc)
+    if stored is None:
+        raise AuthenticationError("Invalid or expired verification token")
+
+    expires_at = stored.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at <= now:
+        raise AuthenticationError("Invalid or expired verification token")
+
+    user = database_session.get(User, stored.user_id)
+    if user is None:
+        raise AuthenticationError("Invalid or expired verification token")
+
+    stored.revoked_at = now
+    user.is_verified = True
+    database_session.commit()
+
+
+def create_password_reset_token(database_session: Session, email: str) -> str | None:
+    """Generate a password reset token if the email belongs to an active user.
+
+    Returns the raw token, or None when the email is not found so that the
+    caller can respond identically in both cases (no user enumeration).
+    """
+
+    normalized = email.lower()
+    user = database_session.scalar(select(User).where(User.email == normalized))
+    if user is None or not user.is_active:
+        return None
+
+    raw_token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+    database_session.add(
+        Token(
+            user_id=user.id,
+            token_hash=hash_token(raw_token),
+            token_type="password_reset",
+            expires_at=expires_at,
+        )
+    )
+    database_session.commit()
+    return raw_token
+
+
+def reset_password(
+    database_session: Session,
+    raw_token: str,
+    new_password: str,
+) -> None:
+    """Validate a reset token and update the user's hashed password."""
+
+    stored = database_session.scalar(
+        select(Token).where(
+            Token.token_hash == hash_token(raw_token),
+            Token.token_type == "password_reset",
+            Token.revoked_at.is_(None),
+        )
+    )
+    now = datetime.now(timezone.utc)
+    if stored is None:
+        raise AuthenticationError("Invalid or expired reset token")
+
+    expires_at = stored.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at <= now:
+        raise AuthenticationError("Invalid or expired reset token")
+
+    user = database_session.get(User, stored.user_id)
+    if user is None or not user.is_active:
+        raise AuthenticationError("Invalid or expired reset token")
+
+    stored.revoked_at = now
+    user.hashed_password = hash_password(new_password)
+    database_session.commit()
