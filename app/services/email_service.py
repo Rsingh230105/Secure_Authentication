@@ -49,3 +49,16 @@ def send_password_reset_email(to_email: str, token: str) -> None:
         f"ignore this email.\n"
     )
     _send(to_email, "Reset your password", body)
+
+
+def send_otp_email(to_email: str, otp: str, expire_minutes: int) -> None:
+    """Send a one-time password code for OTP-based login."""
+
+    body = (
+        f"Hello,\n\n"
+        f"Your one-time login code is:\n\n"
+        f"{otp}\n\n"
+        f"This code expires in {expire_minutes} minutes. "
+        f"If you did not request this, ignore this email.\n"
+    )
+    _send(to_email, "Your one-time login code", body)

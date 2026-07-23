@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = Field(default=15, gt=0)
     refresh_token_expire_days: int = Field(default=7, gt=0)
+    otp_expire_minutes: int = Field(default=5, gt=0)
 
     smtp_host: str = ""
     smtp_port: int = Field(default=587, ge=1, le=65535)

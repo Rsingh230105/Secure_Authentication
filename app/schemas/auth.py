@@ -85,3 +85,16 @@ class ResetPasswordRequest(BaseModel):
 				"Password must contain lower, upper, numeric, and special characters"
 			)
 		return value
+
+
+class OTPRequest(BaseModel):
+	"""Validate an email address submitted to request an OTP."""
+
+	email: EmailStr
+
+
+class OTPLoginRequest(BaseModel):
+	"""Validate the email and OTP code submitted for OTP-based login."""
+
+	email: EmailStr
+	otp: str = Field(min_length=6, max_length=6)

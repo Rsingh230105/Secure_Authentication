@@ -4,12 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.database.database import get_db
 from app.schemas.auth import (
 	CredentialsRequest,
 	ForgotPasswordRequest,
 	LoginResponse,
 	MessageResponse,
+	OTPLoginRequest,
+	OTPRequest,
 	RegistrationResponse,
 	ResetPasswordRequest,
 	VerifyEmailRequest,
@@ -27,9 +30,11 @@ from app.services.auth_service import (
 	verify_email,
 )
 from app.services.email_service import (
+	send_otp_email,
 	send_password_reset_email,
 	send_verification_email,
 )
+from app.services.otp_service import request_otp, verify_otp_and_login
 
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -160,3 +165,59 @@ def reset_password_route(
 			detail=str(error),
 		) from error
 	return MessageResponse(message="Password reset successfully")
+
+
+@router.post(
+	"/request-otp",
+	response_model=MessageResponse,
+	summary="Request a one-time password for OTP login",
+)
+def request_otp_route(
+	payload: OTPRequest,
+	database_session: Session = Depends(get_db),
+) -> MessageResponse:
+	"""Generate an OTP for the given email and deliver it via email.
+
+	During development, when SMTP is not configured, the raw OTP is printed
+	to the terminal so it can be used for testing.
+	"""
+
+	try:
+		raw_otp = request_otp(database_session, str(payload.email))
+	except AuthenticationError as error:
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail=str(error),
+		) from error
+
+	if settings.smtp_host:
+		try:
+			send_otp_email(str(payload.email), raw_otp, settings.otp_expire_minutes)
+		except Exception:
+			pass  # Never expose SMTP errors to the caller
+	else:
+		# DEV ONLY — remove before production
+		print(f"[DEV] OTP for {payload.email}: {raw_otp}")
+
+	return MessageResponse(message="If that email is registered you will receive a one-time password shortly")
+
+
+@router.post(
+	"/login-otp",
+	response_model=LoginResponse,
+	summary="Login using a one-time password",
+)
+def login_otp(
+	payload: OTPLoginRequest,
+	database_session: Session = Depends(get_db),
+) -> LoginResponse:
+	"""Verify a submitted OTP and return a JWT access and refresh token pair."""
+
+	try:
+		return verify_otp_and_login(database_session, str(payload.email), payload.otp)
+	except AuthenticationError as error:
+		raise HTTPException(
+			status_code=status.HTTP_401_UNAUTHORIZED,
+			detail=str(error),
+			headers={"WWW-Authenticate": "Bearer"},
+		) from error
