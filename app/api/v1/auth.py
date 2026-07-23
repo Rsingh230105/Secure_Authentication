@@ -1,6 +1,7 @@
 """Version one routes for registration, login, and token refresh."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -35,9 +36,95 @@ from app.services.email_service import (
 	send_verification_email,
 )
 from app.services.otp_service import request_otp, verify_otp_and_login
+from app.services.oauth_service import (
+	google_authorization_url,
+	handle_google_callback,
+	github_authorization_url,
+	handle_github_callback,
+)
 
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
+
+
+# ---------------------------------------------------------------------------
+# Google OAuth2
+# ---------------------------------------------------------------------------
+
+
+@router.get("/google", summary="Initiate Google OAuth2 login")
+def google_login() -> RedirectResponse:
+	"""Redirect the browser to Google's OAuth2 consent screen."""
+
+	try:
+		url = google_authorization_url()
+	except Exception as error:
+		raise HTTPException(
+			status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+			detail=str(error),
+		) from error
+	return RedirectResponse(url=url)
+
+
+@router.get(
+	"/google/callback",
+	response_model=LoginResponse,
+	summary="Google OAuth2 callback",
+)
+def google_callback(
+	code: str = Query(..., description="Authorization code returned by Google"),
+	database_session: Session = Depends(get_db),
+) -> LoginResponse:
+	"""Exchange a Google authorization code for a JWT access and refresh token pair."""
+
+	try:
+		return handle_google_callback(database_session, code)
+	except Exception as error:
+		raise HTTPException(
+			status_code=status.HTTP_401_UNAUTHORIZED,
+			detail=str(error),
+			headers={"WWW-Authenticate": "Bearer"},
+		) from error
+
+
+# ---------------------------------------------------------------------------
+# GitHub OAuth2
+# ---------------------------------------------------------------------------
+
+
+@router.get("/github", summary="Initiate GitHub OAuth2 login")
+def github_login() -> RedirectResponse:
+	"""Redirect the browser to GitHub's OAuth2 authorization screen."""
+
+	try:
+		url = github_authorization_url()
+	except Exception as error:
+		raise HTTPException(
+			status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+			detail=str(error),
+		) from error
+	return RedirectResponse(url=url)
+
+
+@router.get(
+	"/github/callback",
+	response_model=LoginResponse,
+	summary="GitHub OAuth2 callback",
+)
+def github_callback(
+	code: str = Query(..., description="Authorization code returned by GitHub"),
+	database_session: Session = Depends(get_db),
+) -> LoginResponse:
+	"""Exchange a GitHub authorization code for a JWT access and refresh token pair."""
+
+	try:
+		return handle_github_callback(database_session, code)
+	except Exception as error:
+		raise HTTPException(
+			status_code=status.HTTP_401_UNAUTHORIZED,
+			detail=str(error),
+			headers={"WWW-Authenticate": "Bearer"},
+		) from error
 
 
 @router.post(

@@ -31,8 +31,10 @@ class Settings(BaseSettings):
 
     google_client_id: str = ""
     google_client_secret: SecretStr = SecretStr("")
+    google_redirect_uri: str = "http://localhost:8000/api/v1/auth/google/callback"
     github_client_id: str = ""
     github_client_secret: SecretStr = SecretStr("")
+    github_redirect_uri: str = "http://localhost:8000/api/v1/auth/github/callback"
 
     backend_cors_origins: str = "http://localhost:3000"
 
